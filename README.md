@@ -6,3 +6,5 @@ Worker name must be `reverse-spoiler`; deploy command `npx wrangler deploy`; no 
 
 Security: the TMDB token lives in `src/worker.js` as a fallback. Keep the repo PRIVATE, or better:
 `npx wrangler secret put TMDB_TOKEN` (or Dashboard -> Settings -> Variables and Secrets), then delete FALLBACK_TOKEN.
+
+Second review source: Trakt (looked up by IMDb id). Optional: set TRAKT_CLIENT_ID as a Worker variable to override the built-in Client ID.

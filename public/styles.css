@@ -56,3 +56,11 @@ footer a{color:var(--y);display:flex;gap:8px;align-items:center;text-decoration:
 @keyframes shake{10%,90%{transform:translate(-4px,2px)}20%,80%{transform:translate(6px,-3px)}30%,50%,70%{transform:translate(-8px,4px)}40%,60%{transform:translate(8px,-4px)}}
 @keyframes shim{to{background-position:-300% 0}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+.rv-h{font:400 1.5rem Anton;color:var(--y);text-transform:uppercase;margin-top:24px}
+.rv.hide{display:none}
+.rv:nth-of-type(even){transform:rotate(1deg)}
+.rv{font-size:1rem}
+.rv cite{text-transform:none}
+.more{width:100%;margin-top:16px;padding:12px;background:transparent;color:var(--y);border:3px solid var(--y);font:400 1.2rem Anton;text-transform:uppercase}
+.rv-none{margin-top:18px;color:var(--y);font-weight:700}

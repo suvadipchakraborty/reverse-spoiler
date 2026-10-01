@@ -3,7 +3,9 @@ const CONFIG = {
   API: '/api',
   IMG: 'https://image.tmdb.org/t/p/w500',
   GOOD_RATING: 7.0,
-  SNIPPET_MAX: 150
+  SNIPPET_MAX: 180,
+  MAX_REVIEWS: 10,
+  PREVIEW_REVIEWS: 3
 };
 
 // Opportunity cost database (minutes)
@@ -30,12 +32,6 @@ const ALTERNATIVES = [
   { activity: "stare at a wall, but with intent", time: 10 },
   { activity: "read 60 pages of a book you own and have never opened", time: 110 },
   { activity: "unsubscribe from 200 emails and feel something close to peace", time: 25 }
-];
-
-const FALLBACK_QUOTES = [
-  "I'd ask for my money back, but what I really want is my time.",
-  "Nobody involved in this film seemed to be having a good time. I joined them.",
-  "I've seen better plot structure in a grocery list."
 ];
 
 const $ = id => document.getElementById(id);
@@ -84,19 +80,72 @@ async function tmdb(path, params = {}) {
   return res.json();
 }
 
+const NEG = /\b(bad|boring|waste|terrible|worst|awful|disappoint\w*|mess|dull|painful|cringe|annoying|poor|weak|lazy|unwatchable|horrible|pointless|forgettable|tedious|disaster|nonsense|failed?|fails|lacks?|flat|stupid|torture)\b/i;
+
 function snippet(text) {
-  let t = text.replace(/[*_#>`~\[\]]/g, '').replace(/\s+/g, ' ').trim();
-  if (t.length <= CONFIG.SNIPPET_MAX) return t;
-  const cut = t.slice(0, CONFIG.SNIPPET_MAX);
-  const end = Math.max(cut.lastIndexOf('. '), cut.lastIndexOf('! '), cut.lastIndexOf('? '));
-  return end > 50 ? cut.slice(0, end + 1) : cut.slice(0, cut.lastIndexOf(' ')) + '…';
+  const clean = text.replace(/[*_#>`~\[\]]/g, '').replace(/\s+/g, ' ').trim();
+  const sentences = clean.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [clean];
+  // start from the first sentence that actually sounds negative, else the start
+  let i = sentences.findIndex(x => NEG.test(x));
+  if (i < 0) i = 0;
+  let out = '';
+  for (; i < sentences.length; i++) {
+    const next = (out + ' ' + sentences[i]).trim();
+    if (next.length > CONFIG.SNIPPET_MAX) break;
+    out = next;
+  }
+  if (!out) {
+    const cut = sentences[Math.max(i, 0)].trim().slice(0, CONFIG.SNIPPET_MAX);
+    out = cut.slice(0, cut.lastIndexOf(' ') > 40 ? cut.lastIndexOf(' ') : cut.length) + '…';
+  }
+  return out;
 }
 
-function bestReview(results) {
-  const rated = results.filter(r => r.author_details && r.author_details.rating != null && r.author_details.rating <= 5);
-  rated.sort((a, b) => a.author_details.rating - b.author_details.rating);
-  const r = rated[0] || results[0];
-  return r ? snippet(r.content) : pick(FALLBACK_QUOTES);
+// All TMDB review pages (up to 5), so we find as many real reviews as exist
+async function allReviews(id) {
+  const first = await tmdb(`/movie/${id}/reviews`, { page: 1 });
+  let all = first.results || [];
+  const pages = Math.min(first.total_pages || 1, 5);
+  if (pages > 1) {
+    const rest = await Promise.all(Array.from({ length: pages - 1 }, (_, i) =>
+      tmdb(`/movie/${id}/reviews`, { page: i + 2 }).catch(() => ({ results: [] }))));
+    rest.forEach(r => { all = all.concat(r.results || []); });
+  }
+  return all;
+}
+
+// Second source: Trakt comments (looked up by IMDb id), proxied through the Worker
+async function traktComments(imdbId) {
+  if (!imdbId) return [];
+  const get = async sort => {
+    const r = await fetch(`${CONFIG.API}/trakt/movies/${imdbId}/comments/${sort}?limit=100`);
+    if (!r.ok) throw new Error('trakt');
+    return r.json();
+  };
+  try { return await get('lowest'); } catch { try { return await get('likes'); } catch { return []; } }
+}
+
+// Real negative reviews: rated <= 5 (lowest first), then unrated ones. Never invented.
+function negativeReviews(tmdbResults, traktResults = []) {
+  const seen = new Set();
+  const fromTmdb = tmdbResults.filter(r => r.content && !seen.has(r.id) && seen.add(r.id)).map(r => ({
+    author: (r.author_details && r.author_details.username) || r.author || 'Anonymous',
+    rating: r.author_details ? r.author_details.rating : null,
+    text: snippet(r.content),
+    source: 'TMDB'
+  }));
+  const fromTrakt = traktResults
+    .filter(c => c.comment && !c.spoiler && c.comment.length >= 40 && c.user_rating != null && c.user_rating <= 5)
+    .map(c => ({
+      author: (c.user && c.user.username) || 'Trakt user',
+      rating: c.user_rating,
+      text: snippet(c.comment),
+      source: 'Trakt'
+    }));
+  const all = fromTmdb.concat(fromTrakt);
+  const rated = all.filter(r => r.rating != null && r.rating <= 5).sort((a, b) => a.rating - b.rating);
+  const unrated = all.filter(r => r.rating == null && r.source === 'TMDB');
+  return rated.concat(unrated).slice(0, CONFIG.MAX_REVIEWS);
 }
 
 // Opportunity cost: biggest alternatives that fit, with repeat count
@@ -116,16 +165,20 @@ function showError(msg) {
   el.result.innerHTML = `<div class="err" role="alert">${esc(msg)}</div>`;
 }
 
-function render(m, review) {
+function render(m, reviews) {
   const good = m.vote_average >= CONFIG.GOOD_RATING;
   const rating = m.vote_average.toFixed(1);
   const poster = m.poster_path
     ? `<img src="${CONFIG.IMG}${m.poster_path}" alt="Poster for ${esc(m.title)}">`
     : `<div class="noimg">${esc(m.title)}</div>`;
+  const rv = (r, i) => `<blockquote class="rv${i >= CONFIG.PREVIEW_REVIEWS ? ' hide' : ''}">“${esc(r.text)}”<cite>${esc(r.author)} · ${r.rating != null ? r.rating + '/10' : 'unrated'} · ${r.source}</cite></blockquote>`;
+  const reviewsHtml = reviews.length
+    ? `<h3 class="rv-h">Real reviews, real regret (${reviews.length})</h3>${reviews.map(rv).join('')}`
+      + (reviews.length > CONFIG.PREVIEW_REVIEWS ? `<button class="more" id="more" type="button">Show all ${reviews.length} reviews</button>` : '')
+    : `<p class="rv-none">No reviews on TMDB for this one. Either nobody watched it, or nobody cared enough to complain.</p>`;
   const verdict = good
     ? `<p class="verdict">We'll allow it. This is actually pretty good.</p>`
-    : `<p class="verdict">Wait. This movie is <b>${m.runtime} minutes</b> long and has a mediocre <b>${rating}/10</b> score. Instead of watching this, you have exactly enough time to <b>${esc(opportunity(m.runtime))}</b>.</p>
-       <blockquote>“${esc(review)}”<cite>Angry Internet User</cite></blockquote>`;
+    : `<p class="verdict">Wait. This movie is <b>${m.runtime} minutes</b> long and has a mediocre <b>${rating}/10</b> score. Instead of watching this, you have exactly enough time to <b>${esc(opportunity(m.runtime))}</b>.</p>${reviewsHtml}`;
 
   el.result.innerHTML = `
     <article class="card ${good ? 'go' : 'stop'}">
@@ -143,6 +196,8 @@ function render(m, review) {
     url: 'https://reverse-spoiler.suvadipchakraborty.workers.dev/'
   };
   $('share').addEventListener('click', share);
+  const more = $('more');
+  if (more) more.addEventListener('click', () => { document.querySelectorAll('.rv.hide').forEach(x => x.classList.remove('hide')); more.remove(); });
 
   if (!good) {
     document.body.classList.remove('shake'); void document.body.offsetWidth;
@@ -174,9 +229,10 @@ el.form.addEventListener('submit', async e => {
     const search = await tmdb('/search/movie', { query });
     if (!search.results.length) return showError(`No movie found for "${query}". Check the spelling.`);
     const id = search.results[0].id;
-    const [details, reviews] = await Promise.all([tmdb(`/movie/${id}`), tmdb(`/movie/${id}/reviews`)]);
+    const [details, reviews] = await Promise.all([tmdb(`/movie/${id}`), allReviews(id)]);
+    const trakt = await traktComments(details.imdb_id);
     if (!details.runtime || !details.vote_average) return showError('TMDB has no runtime or rating for this one yet. Try another title.');
-    render(details, bestReview(reviews.results || []));
+    render(details, negativeReviews(reviews, trakt));
   } catch (err) {
     showError(navigator.onLine ? err.message : 'You are offline. Reconnect and try again.');
   }
