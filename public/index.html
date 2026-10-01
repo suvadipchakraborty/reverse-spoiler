@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>The Reverse Spoiler: The Anti-Watchlist</title>
+<meta name="description" content="Tell us what you're about to watch. We'll tell you what else you could do with that time.">
+<meta name="theme-color" content="#FFD600">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://reverse-spoiler.suvadipchakraborty.workers.dev/">
+<meta property="og:title" content="The Reverse Spoiler: The Anti-Watchlist">
+<meta property="og:description" content="Before you waste 2 hours on a mediocre movie, ask us. We'll save you.">
+<meta property="og:image" content="https://reverse-spoiler.suvadipchakraborty.workers.dev/preview.png">
+<meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="The Reverse Spoiler: The Anti-Watchlist">
+<meta name="twitter:description" content="Before you waste 2 hours on a mediocre movie, ask us. We'll save you.">
+<meta name="twitter:image" content="https://reverse-spoiler.suvadipchakraborty.workers.dev/preview.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Archivo:wght@400;700;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="tape" aria-hidden="true"></div>
+<main>
+  <header>
+    <p class="kicker">The Anti-Watchlist</p>
+    <h1>The Reverse<br>Spoiler</h1>
+  </header>
+
+  <form id="form" autocomplete="off">
+    <label for="q">What movie are you about to waste time on?</label>
+    <input id="q" type="search" placeholder="Type a title…" required enterkeyhint="search">
+    <button type="submit">Judge it</button>
+  </form>
+
+  <p id="tally" class="tally" hidden></p>
+
+  <section id="result" aria-live="polite"></section>
+
+  <div class="actions">
+    <button id="install" class="ghost" type="button">Save app to home screen</button>
+  </div>
+</main>
+
+<footer>
+  <span>Built by Suva</span>
+  <a href="mailto:suvadipchakraborty@gmail.com?subject=Reverse%20Spoiler%20Feedback" aria-label="Send feedback" title="Send feedback">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"><path d="M4 4h16v12H9l-5 4z"/></svg>
+    <span>Feedback</span>
+  </a>
+</footer>
+<script src="app.js"></script>
+</body>
+</html>
