@@ -68,9 +68,9 @@ function renderTally() {
 renderTally();
 
 // ---------- Helpers ----------
-const fmt = m => m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m} min`;
-const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const pick = a => a[Math.floor(Math.random() * a.length)];
+function fmt(m) { return m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m} min`; }
+function esc(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+function pick(a) { return a[Math.floor(Math.random() * a.length)]; }
 
 async function tmdb(path, params = {}) {
   const url = new URL(CONFIG.API + path, location.origin);

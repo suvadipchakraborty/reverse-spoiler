@@ -64,3 +64,5 @@ footer a{color:var(--y);display:flex;gap:8px;align-items:center;text-decoration:
 .rv cite{text-transform:none}
 .more{width:100%;margin-top:16px;padding:12px;background:transparent;color:var(--y);border:3px solid var(--y);font:400 1.2rem Anton;text-transform:uppercase}
 .rv-none{margin-top:18px;color:var(--y);font-weight:700}
+
+[hidden]{display:none!important}
