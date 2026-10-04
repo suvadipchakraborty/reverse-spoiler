@@ -5,6 +5,9 @@ const CONFIG = {
   GOOD_RATING: 7.0,
   SNIPPET_MAX: 180,
   MAX_REVIEWS: 10,
+  NEG_MAX_RATING: 5,    // TMDB cutoff (out of 10)
+  TRAKT_MAX_RATING: 6,  // Trakt cutoff (out of 10), raised from 5
+  TRAKT_PAGES: 2,       // Trakt comment pages to fetch (100 per page)
   PREVIEW_REVIEWS: 3
 };
 
@@ -114,15 +117,20 @@ async function allReviews(id) {
   return all;
 }
 
-// Second source: Trakt comments (looked up by IMDb id), proxied through the Worker
+// Second source: Trakt comments (looked up by IMDb id), proxied through the Worker.
+// Fetches the first TRAKT_PAGES pages of lowest-rated comments in parallel and de-duplicates by comment id.
 async function traktComments(imdbId) {
   if (!imdbId) return [];
-  const get = async sort => {
-    const r = await fetch(`${CONFIG.API}/trakt/movies/${imdbId}/comments/${sort}?limit=100`);
+  const get = async (sort, page) => {
+    const r = await fetch(`${CONFIG.API}/trakt/movies/${imdbId}/comments/${sort}?limit=100&page=${page}`);
     if (!r.ok) throw new Error('trakt');
     return r.json();
   };
-  try { return await get('lowest'); } catch { try { return await get('likes'); } catch { return []; } }
+  const pages = sort => Promise.all(Array.from({ length: CONFIG.TRAKT_PAGES }, (_, i) => get(sort, i + 1).catch(() => [])));
+  const dedupe = lists => { const seen = new Set(); return lists.flat().filter(c => c && !seen.has(c.id) && seen.add(c.id)); };
+  const lowest = dedupe(await pages('lowest'));
+  if (lowest.length) return lowest;
+  return dedupe(await pages('likes'));
 }
 
 // Third source: The Guardian's film critics (1-5 stars), proxied through the Worker.
@@ -147,7 +155,7 @@ async function guardianReviews(title, year) {
   } catch { return []; }
 }
 
-// Real negative reviews: rated <= 5 (lowest first), then unrated ones. Never invented.
+// Real negative reviews: rated <= 5 (<= 6 for Trakt), lowest first, then unrated ones. Never invented.
 function negativeReviews(tmdbResults, traktResults = [], guardianResults = []) {
   const seen = new Set();
   const fromTmdb = tmdbResults.filter(r => r.content && !seen.has(r.id) && seen.add(r.id)).map(r => ({
@@ -157,7 +165,7 @@ function negativeReviews(tmdbResults, traktResults = [], guardianResults = []) {
     source: 'TMDB'
   }));
   const fromTrakt = traktResults
-    .filter(c => c.comment && !c.spoiler && c.comment.length >= 40 && c.user_rating != null && c.user_rating <= 5)
+    .filter(c => c.comment && !c.spoiler && c.comment.length >= 40 && c.user_rating != null && c.user_rating <= CONFIG.TRAKT_MAX_RATING)
     .map(c => ({
       author: (c.user && c.user.username) || 'Trakt user',
       rating: c.user_rating,
@@ -173,7 +181,7 @@ function negativeReviews(tmdbResults, traktResults = [], guardianResults = []) {
     url: g.url
   }));
   const all = fromTmdb.concat(fromTrakt);
-  const rated = all.filter(r => r.rating != null && r.rating <= 5).sort((a, b) => a.rating - b.rating);
+  const rated = all.filter(r => r.rating != null && r.rating <= (r.source === 'Trakt' ? CONFIG.TRAKT_MAX_RATING : CONFIG.NEG_MAX_RATING)).sort((a, b) => a.rating - b.rating);
   const unrated = all.filter(r => r.rating == null && r.source === 'TMDB');
   return fromGuardian.concat(rated, unrated).slice(0, CONFIG.MAX_REVIEWS);
 }

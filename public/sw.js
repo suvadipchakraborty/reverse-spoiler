@@ -1,4 +1,4 @@
-const CACHE = 'reverse-spoiler-v6';
+const CACHE = 'reverse-spoiler-v7';
 const SHELL = ['./', 'index.html', 'styles.css', 'app.js', 'manifest.json', 'icons/icon-192.png', 'icons/icon-512.png'];
 
 self.addEventListener('install', e => {
