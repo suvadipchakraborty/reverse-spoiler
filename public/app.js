@@ -125,8 +125,30 @@ async function traktComments(imdbId) {
   try { return await get('lowest'); } catch { try { return await get('likes'); } catch { return []; } }
 }
 
+// Third source: The Guardian's film critics (1-5 stars), proxied through the Worker.
+// Only 1-2 star reviews of this exact film are kept (3 stars or fewer would be too mild).
+const normTitle = s => String(s).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+function plainText(html) {
+  return new DOMParser().parseFromString(String(html || ''), 'text/html').body.textContent.trim();
+}
+async function guardianReviews(title, year) {
+  try {
+    const r = await fetch(`${CONFIG.API}/guardian?q=${encodeURIComponent(title)}`);
+    if (!r.ok) return [];
+    const list = await r.json();
+    const t = normTitle(title);
+    const y = +year;
+    return list.filter(x => {
+      if (x.stars == null || x.stars > 2) return false;
+      if (!normTitle(x.headline).includes(t)) return false;
+      const py = new Date(x.date).getFullYear();
+      return !y || !py || (py >= y - 1 && py <= y + 1); // guards against same-titled remakes
+    });
+  } catch { return []; }
+}
+
 // Real negative reviews: rated <= 5 (lowest first), then unrated ones. Never invented.
-function negativeReviews(tmdbResults, traktResults = []) {
+function negativeReviews(tmdbResults, traktResults = [], guardianResults = []) {
   const seen = new Set();
   const fromTmdb = tmdbResults.filter(r => r.content && !seen.has(r.id) && seen.add(r.id)).map(r => ({
     author: (r.author_details && r.author_details.username) || r.author || 'Anonymous',
@@ -142,10 +164,18 @@ function negativeReviews(tmdbResults, traktResults = []) {
       text: snippet(c.comment),
       source: 'Trakt'
     }));
+  // Critic reviews go first (up to 3) so a pile of 1/10 user comments can't crowd them out.
+  const fromGuardian = guardianResults.slice(0, 3).map(g => ({
+    author: 'Guardian critic',
+    rating: g.stars * 2,
+    text: snippet(plainText(g.trailText) || plainText(g.headline)),
+    source: 'The Guardian',
+    url: g.url
+  }));
   const all = fromTmdb.concat(fromTrakt);
   const rated = all.filter(r => r.rating != null && r.rating <= 5).sort((a, b) => a.rating - b.rating);
   const unrated = all.filter(r => r.rating == null && r.source === 'TMDB');
-  return rated.concat(unrated).slice(0, CONFIG.MAX_REVIEWS);
+  return fromGuardian.concat(rated, unrated).slice(0, CONFIG.MAX_REVIEWS);
 }
 
 // Opportunity cost: biggest alternatives that fit, with repeat count
@@ -171,11 +201,11 @@ function render(m, reviews) {
   const poster = m.poster_path
     ? `<img src="${CONFIG.IMG}${m.poster_path}" alt="Poster for ${esc(m.title)}">`
     : `<div class="noimg">${esc(m.title)}</div>`;
-  const rv = (r, i) => `<blockquote class="rv${i >= CONFIG.PREVIEW_REVIEWS ? ' hide' : ''}">“${esc(r.text)}”<cite>${esc(r.author)} · ${r.rating != null ? r.rating + '/10' : 'unrated'} · ${r.source}</cite></blockquote>`;
+  const rv = (r, i) => `<blockquote class="rv${i >= CONFIG.PREVIEW_REVIEWS ? ' hide' : ''}">“${esc(r.text)}”<cite>${esc(r.author)} · ${r.rating != null ? r.rating + '/10' : 'unrated'} · ${r.url ? `<a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.source)}</a>` : esc(r.source)}</cite></blockquote>`;
   const reviewsHtml = reviews.length
     ? `<h3 class="rv-h">Real reviews, real regret (${reviews.length})</h3>${reviews.map(rv).join('')}`
       + (reviews.length > CONFIG.PREVIEW_REVIEWS ? `<button class="more" id="more" type="button">Show all ${reviews.length} reviews</button>` : '')
-    : `<p class="rv-none">No reviews on TMDB for this one. Either nobody watched it, or nobody cared enough to complain.</p>`;
+    : `<p class="rv-none">No negative reviews found for this one. Either nobody watched it, or nobody cared enough to complain.</p>`;
   const verdict = good
     ? `<p class="verdict">We'll allow it. This is actually pretty good.</p>`
     : `<p class="verdict">Wait. This movie is <b>${m.runtime} minutes</b> long and has a mediocre <b>${rating}/10</b> score. Instead of watching this, you have exactly enough time to <b>${esc(opportunity(m.runtime))}</b>.</p>${reviewsHtml}`;
@@ -230,9 +260,12 @@ el.form.addEventListener('submit', async e => {
     if (!search.results.length) return showError(`No movie found for "${query}". Check the spelling.`);
     const id = search.results[0].id;
     const [details, reviews] = await Promise.all([tmdb(`/movie/${id}`), allReviews(id)]);
-    const trakt = await traktComments(details.imdb_id);
+    const [trakt, guardian] = await Promise.all([
+      traktComments(details.imdb_id),
+      guardianReviews(details.title, (details.release_date || '').slice(0, 4))
+    ]);
     if (!details.runtime || !details.vote_average) return showError('TMDB has no runtime or rating for this one yet. Try another title.');
-    render(details, negativeReviews(reviews, trakt));
+    render(details, negativeReviews(reviews, trakt, guardian));
   } catch (err) {
     showError(navigator.onLine ? err.message : 'You are offline. Reconnect and try again.');
   }

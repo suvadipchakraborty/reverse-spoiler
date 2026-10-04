@@ -22,10 +22,39 @@ export default {
       const t = new URL('https://api.trakt.tv' + path.slice(6));
       ['page', 'limit'].forEach(k => url.searchParams.has(k) && t.searchParams.set(k, url.searchParams.get(k)));
       const tr = await fetch(t, {
-        headers: { 'trakt-api-version': '2', 'trakt-api-key': env.TRAKT_CLIENT_ID || FALLBACK_TRAKT_ID, 'content-type': 'application/json' },
+        headers: { 'trakt-api-version': '2', 'trakt-api-key': env.TRAKT_CLIENT_ID || FALLBACK_TRAKT_ID, 'content-type': 'application/json', 'user-agent': 'reverse-spoiler/1.0 (Cloudflare Worker)' },
         cf: { cacheTtl: 3600, cacheEverything: true }
       });
       return new Response(tr.body, { status: tr.status, headers: { 'content-type': 'application/json', 'cache-control': 'public, max-age=300' } });
+    }
+
+    // ---- Guardian film reviews (professional critics, 1-5 stars) ----
+    // Optional: needs a free key from https://open-platform.theguardian.com/access/
+    //   npx wrangler secret put GUARDIAN_API_KEY
+    // Without a key this returns [] and the app simply skips this source.
+    if (request.method === 'GET' && path === '/guardian') {
+      const q = (url.searchParams.get('q') || '').trim().slice(0, 100);
+      const empty = () => new Response('[]', { headers: { 'content-type': 'application/json', 'cache-control': 'public, max-age=300' } });
+      if (!env.GUARDIAN_API_KEY || !q) return empty();
+      const g = new URL('https://content.guardianapis.com/search');
+      g.searchParams.set('q', `"${q}"`);
+      g.searchParams.set('tag', 'film/film,tone/reviews');
+      g.searchParams.set('show-fields', 'starRating,headline,trailText');
+      g.searchParams.set('page-size', '20');
+      g.searchParams.set('api-key', env.GUARDIAN_API_KEY);
+      try {
+        const gr = await fetch(g, { cf: { cacheTtl: 86400, cacheEverything: true } });
+        if (!gr.ok) return empty();
+        const data = await gr.json();
+        const out = ((data.response && data.response.results) || []).map(r => ({
+          headline: (r.fields && r.fields.headline) || r.webTitle,
+          trailText: (r.fields && r.fields.trailText) || '',
+          stars: r.fields && r.fields.starRating != null ? Number(r.fields.starRating) : null,
+          url: r.webUrl,
+          date: r.webPublicationDate
+        }));
+        return new Response(JSON.stringify(out), { headers: { 'content-type': 'application/json', 'cache-control': 'public, max-age=3600' } });
+      } catch { return empty(); }
     }
 
     // ---- TMDB ----

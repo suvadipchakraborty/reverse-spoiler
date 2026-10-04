@@ -8,3 +8,5 @@ Security: the TMDB token lives in `src/worker.js` as a fallback. Keep the repo P
 `npx wrangler secret put TMDB_TOKEN` (or Dashboard -> Settings -> Variables and Secrets), then delete FALLBACK_TOKEN.
 
 Second review source: Trakt (looked up by IMDb id). Optional: set TRAKT_CLIENT_ID as a Worker variable to override the built-in Client ID.
+
+Third review source: The Guardian film critics (1-2 star reviews only). Free key: https://open-platform.theguardian.com/access/ then `npx wrangler secret put GUARDIAN_API_KEY`. Without it this source is skipped.
